@@ -243,4 +243,76 @@
     )
 )
 
+;; Comprehensive NFT transfer with full provenance tracking and AI-powered fraud detection
+;; This function handles ownership transfers while maintaining complete audit trail,
+;; performing multi-layered validation, and generating verification hashes for each transfer.
+;; It integrates AI model confidence scores to detect potential fraudulent transfers.
+;; @param nft-id: uint - The unique identifier of the NFT being transferred
+;; @param new-owner: principal - The recipient address of the NFT
+;; @param transfer-price: uint - The transaction price in micro-STX
+;; @param verification-hash: string-ascii 64 - Cryptographic hash for transfer verification
+;; @returns: (response bool uint) - Returns ok true on success, or error code on failure
+(define-public (transfer-nft-with-provenance
+    (nft-id uint)
+    (new-owner principal)
+    (transfer-price uint)
+    (verification-hash (string-ascii 64)))
+    (let
+        (
+            ;; Retrieve current provenance data, fail if NFT doesn't exist
+            (provenance-data (unwrap! (map-get? nft-provenance { nft-id: nft-id }) ERR-NFT-NOT-FOUND))
+            
+            ;; Extract current owner from provenance record
+            (current-owner-principal (get current-owner provenance-data))
+            
+            ;; Get current transfer count for history indexing
+            (current-transfer-count (get transfer-count provenance-data))
+            
+            ;; Retrieve AI model data for fraud detection
+            (ai-model-data (unwrap! (map-get? ai-models { model-id: (get ai-model-id provenance-data) }) ERR-INVALID-AI-MODEL))
+            
+            ;; Extract AI confidence level for risk assessment
+            (ai-confidence (get confidence-level ai-model-data))
+            
+            ;; Calculate new authenticity score based on AI analysis
+            (updated-authenticity (calculate-weighted-authenticity ai-confidence (get authenticity-score provenance-data)))
+        )
+        
+        ;; Security check: Only current owner can initiate transfer
+        (asserts! (is-eq tx-sender current-owner-principal) ERR-NOT-AUTHORIZED)
+        
+        ;; Fraud prevention: Block transfer if NFT is flagged as suspicious
+        (asserts! (not (get is-flagged provenance-data)) ERR-TRANSFER-FAILED)
+        
+        ;; AI-powered validation: Ensure authenticity score meets threshold
+        (asserts! (>= updated-authenticity MIN-AI-CONFIDENCE) ERR-TRANSFER-FAILED)
+        
+        ;; Record transfer in ownership history with complete audit trail
+        (map-set ownership-history
+            { nft-id: nft-id, transfer-index: current-transfer-count }
+            {
+                from-owner: current-owner-principal,
+                to-owner: new-owner,
+                transfer-timestamp: block-height,
+                transfer-price: transfer-price,
+                verification-hash: verification-hash
+            }
+        )
+        
+        ;; Update provenance record with new owner and incremented transfer count
+        (map-set nft-provenance
+            { nft-id: nft-id }
+            (merge provenance-data {
+                current-owner: new-owner,
+                transfer-count: (+ current-transfer-count u1),
+                authenticity-score: updated-authenticity,
+                last-verified: block-height
+            })
+        )
+        
+        ;; Transfer completed successfully
+        (ok true)
+    )
+)
+
 
